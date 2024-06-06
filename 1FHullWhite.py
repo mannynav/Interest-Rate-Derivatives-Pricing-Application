@@ -104,17 +104,15 @@ class OneFactorHullWhite:
 
 
 #Zero coupon bond. Will eventually get this from the market
-Market_ZCB = lambda T: np.exp(-0.1*T)
+Market_ZCB = lambda T: np.exp(-0.5*T)
 
 #Expiries
-T1 = 4.0
-T2 = 8.0
-
+T1 = 5.0
+T2 = 10.0
 
 #Hull White parameters
-lamb = 0.02
-eta = 0.02
-
+lamb = 0.05
+eta = 0.01
 
 steps = 25
 end_time = 50
@@ -122,6 +120,8 @@ grid= np.linspace(0,end_time,steps)
 
 #Create Hull-White object
 HW = OneFactorHullWhite(lamb,eta,Market_ZCB,0.0001)
+
+########### Zero Coupon Bond ###########
 
 #Initial rate. This is input to the HW ZCB
 r0 = HW.ForwardRate(0.00001)
@@ -134,7 +134,11 @@ plt.figure(1)
 plt.grid()
 plt.plot(grid,values)
 
-paths = HW.GeneratePaths(2000,1000,4)
+
+########### Monte Carlo simulation for option on ZCB ###########
+
+
+paths = HW.GeneratePaths(10000,1000,4)
 short_rate = paths["short_rate"]
 numeraire = paths["Numeraire"]
 
@@ -155,19 +159,18 @@ plt.grid()
 plt.plot(strikes,call_prices)
 plt.title('Call option on ZCB')
 
-
 plt.figure(3)
 plt.grid()
 plt.plot(strikes,put_prices)
 plt.title('Put option on ZCB')
 
 
+######## Caplet piricng #########
 
-P0T = lambda T: np.exp(-0.1*T)#np.exp(-0.03*T*T-0.1*T)
+P0T = lambda T: np.exp(-0.5*T)
 frwd = 1.0/(T2-T1) *(P0T(T1)/P0T(T2)-1.0)
 K = np.linspace(frwd/2.0,3.0*frwd,26)
 Notional = 1.0
-
 
 capletPrice = np.zeros(len(K))
 for i in range(0,len(K)):
