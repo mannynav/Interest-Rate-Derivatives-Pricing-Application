@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 import scipy.stats as st
 import scipy.integrate as integrate
 
-
 class OneFactorHullWhite:
 
     mean_reversion = 0.0
@@ -77,7 +76,7 @@ class OneFactorHullWhite:
         new_mean = self.ForwardRate(0.00001)*np.exp(-self.mean_reversion*T) + self.mean_reversion*integrate.trapz(integrand(grid),grid)
         return new_mean
 
-    def ZCBFwdMeasurePrice(self,strike,Ti,TL):
+    def ZCBFwdMeasurePrice(self,option, strike,Ti,TL):
         new_mean = self.MeanForwardMeasure(Ti)
         transformed_v = np.sqrt(self.volatility*self.volatility/(2.0*self.mean_reversion)*(1.0-np.exp(-2.0*self.mean_reversion*Ti)))
 
@@ -88,31 +87,38 @@ class OneFactorHullWhite:
         d1 = a - self.B(Ti,TL)*transformed_v
         d2 = d1+self.B(Ti,TL)*transformed_v
 
-        term1 = np.exp(0.5*self.B(Ti,TL)*self.B(Ti,TL)*transformed_v*transformed_v + self.B(Ti,TL)*new_mean)*st.norm.cdf(d1) - adjusted_k*np.exp(-self.A(Ti,TL))*st.norm.cdf(d2)
+        term1 = np.exp(0.5*self.B(Ti,TL)*self.B(Ti,TL)*transformed_v*transformed_v + self.B(Ti,TL)*new_mean)*st.norm.cdf(d1) - adjusted_k*st.norm.cdf(d2)
 
-        return self.ZCB(Ti)*np.exp(self.A(Ti,TL))*term1  - self.ZCB(TL) + strike*self.ZCB(Ti)
+        #For call option
+        if option == 1:
+            return self.ZCB(Ti)*np.exp(self.A(Ti,TL))*term1
+
+        #For put option
+        if option ==0:
+            return self.ZCB(Ti)*np.exp(self.A(Ti,TL))*term1  - self.ZCB(TL) + strike*self.ZCB(Ti)
 
 
     def Caplet(self,notional,strike,Ti,TL):
         transformed_notional = notional*(1.0 + (TL-Ti)*strike)
 
-        transformed_strike = ((TL-Ti)*strike) + 1.0
+        transformed_strike = (TL-Ti)*strike + 1.0
 
-        price = transformed_notional*self.ZCBFwdMeasurePrice(1/transformed_strike,Ti,TL)
+        #the parameter 0 will use the put option on ZCB
+        price = transformed_notional*self.ZCBFwdMeasurePrice(0,1/transformed_strike,Ti,TL)
 
         return price
 
 
 #Zero coupon bond. Will eventually get this from the market
-Market_ZCB = lambda T: np.exp(-0.5*T)
+Market_ZCB = lambda T: np.exp(-0.1*T)
 
 #Expiries
-T1 = 5.0
-T2 = 10.0
+T1 = 4.0
+T2 = 8.0
 
 #Hull White parameters
-lamb = 0.05
-eta = 0.01
+lamb = 0.02
+eta = 0.02
 
 steps = 25
 end_time = 50
@@ -120,6 +126,8 @@ grid= np.linspace(0,end_time,steps)
 
 #Create Hull-White object
 HW = OneFactorHullWhite(lamb,eta,Market_ZCB,0.0001)
+
+
 
 ########### Zero Coupon Bond ###########
 
@@ -136,14 +144,12 @@ plt.plot(grid,values)
 
 
 ########### Monte Carlo simulation for option on ZCB ###########
-
-
 paths = HW.GeneratePaths(10000,1000,4)
 short_rate = paths["short_rate"]
 numeraire = paths["Numeraire"]
 
-strikes = np.linspace(0.01,1.7,50)
-ZCB_Price = HW.ZeroCouponBond(4,8,short_rate[:,-1]) #Closed form price to be used from T = 4 to T = 8.
+strikes = np.linspace(0.01,1.5,50)
+ZCB_Price = HW.ZeroCouponBond(4,8,short_rate[:,-1])
 
 call_prices = np.zeros([len(strikes),1])
 put_prices = np.zeros([len(strikes),1])
@@ -154,33 +160,43 @@ for i,strike in enumerate(strikes):
 for i,strike in enumerate(strikes):
     put_prices[i] = np.mean( 1.0/numeraire[:,-1] * np.maximum(strike-ZCB_Price,0.0))
 
+Theoretical_Price_call = np.zeros([len(strikes),1])
+Theoretical_Price_put = np.zeros([len(strikes),1])
+
+for i,strike in enumerate(strikes):
+    Theoretical_Price_call[i] = HW.ZCBFwdMeasurePrice(1,strike,4,8)
+
+for i,strike in enumerate(strikes):
+    Theoretical_Price_put[i] = HW.ZCBFwdMeasurePrice(0, strike,4,8)
+
 plt.figure(2)
 plt.grid()
 plt.plot(strikes,call_prices)
+plt.plot(strikes,Theoretical_Price_call,'--g')
 plt.title('Call option on ZCB')
+plt.legend(["Monte Carlo","Analytical"])
 
 plt.figure(3)
 plt.grid()
 plt.plot(strikes,put_prices)
+plt.plot(strikes,Theoretical_Price_put,'--g')
 plt.title('Put option on ZCB')
+plt.legend(["Monte Carlo","Analytical"])
 
 
-######## Caplet piricng #########
-
-P0T = lambda T: np.exp(-0.5*T)
-frwd = 1.0/(T2-T1) *(P0T(T1)/P0T(T2)-1.0)
-K = np.linspace(frwd/2.0,3.0*frwd,26)
+######## Caplet pricng #########
+Forward = 1.0/(T2 - T1)*(Market_ZCB(T1)/Market_ZCB(T2)-1.0)
+Strikes = np.linspace(Forward/2.0,3.0*Forward,25)
 Notional = 1.0
 
-capletPrice = np.zeros(len(K))
-for i in range(0,len(K)):
-    capletPrice[i] = HW.Caplet(Notional,K[i],T1,T2)
-
+capletPrice = np.zeros(len(Strikes))
+for i in range(0,len(Strikes)):
+    capletPrice[i] = HW.Caplet(Notional,Strikes[i],T1,T2)
 
 
 plt.figure(4)
 plt.title('Caplet Price')
-plt.plot(K,capletPrice)
+plt.plot(Strikes,capletPrice)
 plt.xlabel('strike')
 plt.ylabel('Caplet Price')
 plt.grid()
